@@ -3,78 +3,83 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"time"
+	"log"
 
-	"github.com/user/portwatch/internal/filter"
-	"github.com/user/portwatch/internal/monitor"
-	"github.com/user/portwatch/internal/notifier"
-	"github.com/user/portwatch/internal/state"
+	"portwatch/internal/alert"
+	"portwatch/internal/monitor"
+	"portwatch/internal/state"
 )
 
-// pipeline wires together a single scan-diff-notify cycle.
-// It is intentionally stateless between calls so that the ticker
-// can invoke it repeatedly without shared mutable fields.
+// pipeline wires together one scan cycle: scan → diff → throttle → alert.
 type pipeline struct {
 	mon      *monitor.Monitor
-	filter   *filter.Filter
 	store    *state.Store
-	notify   *notifier.Notifier
+	alerter  *alert.Alerter
+	throttle *throttle
+	snap     *snapshot
 	metrics  *metrics
-	snapshot *snapshot
 }
 
 func newPipeline(
 	mon *monitor.Monitor,
-	f *filter.Filter,
 	store *state.Store,
-	n *notifier.Notifier,
-	m *metrics,
+	alerter *alert.Alerter,
+	th *throttle,
 	snap *snapshot,
+	m *metrics,
 ) *pipeline {
 	return &pipeline{
-		mon:      mon,
-		filter:   f,
-		store:    store,
-		notify:   n,
-		metrics:  m,
-		snapshot: snap,
+		mon:     mon,
+		store:   store,
+		alerter: alerter,
+		throttle: th,
+		snap:    snap,
+		metrics: m,
 	}
 }
 
-// run executes one full scan cycle: scan → filter → diff → notify → persist.
-// It returns a non-nil error only when the scan itself fails; diff/notify
-// errors are recorded in metrics but do not abort the cycle.
-func (p *pipeline) run(ctx context.Context) error {
-	start := time.Now()
-
-	current, err := p.mon.Scan(ctx)
+// Run executes one full scan cycle. It is intended to be called on each
+// ticker tick inside the daemon run-loop.
+func (p *pipeline) Run(ctx context.Context) error {
+	ports, err := p.mon.Scan(ctx)
+	p.metrics.recordScan(err)
 	if err != nil {
-		p.metrics.recordScan(time.Since(start), err)
-		return fmt.Errorf("pipeline scan: %w", err)
+		return fmt.Errorf("scan: %w", err)
 	}
 
-	filtered := p.filter.Apply(current)
-	p.snapshot.update(filtered)
-	p.metrics.recordScan(time.Since(start), nil)
+	p.snap.Update(ports)
 
-	previous, _ := p.store.Load()
-	diff := state.Diff(previous, filtered)
+	prev, err := p.store.Load()
+	if err != nil {
+		log.Printf("[pipeline] state load: %v — treating as empty", err)
+		prev = state.New()
+	}
 
-	if len(diff.Added)+len(diff.Removed) == 0 {
-		return nil
+	curr := state.New()
+	for _, port := range ports {
+		curr.Add(port)
+	}
+
+	diff := prev.Diff(curr)
+	if diff.Empty() {
+		return p.store.Save(curr)
 	}
 
 	p.metrics.recordChanges(diff)
 
-	if notifyErr := p.notify.Notify(ctx, diff); notifyErr != nil {
-		p.metrics.recordAlert(notifyErr)
-	} else {
-		p.metrics.recordAlert(nil)
+	for _, change := range diff.Changes() {
+		key := fmt.Sprintf("%s:%d:%s", change.Protocol, change.Port, change.Kind)
+		if !p.throttle.Allow(key) {
+			log.Printf("[pipeline] throttled alert for %s", key)
+			continue
+		}
+		if alertErr := p.alerter.Send(ctx, change); alertErr != nil {
+			log.Printf("[pipeline] alert send: %v", alertErr)
+			p.metrics.recordAlert(alertErr)
+		} else {
+			p.metrics.recordAlert(nil)
+		}
 	}
 
-	if saveErr := p.store.Save(filtered); saveErr != nil {
-		return fmt.Errorf("pipeline persist: %w", saveErr)
-	}
-
-	return nil
+	return p.store.Save(curr)
 }
