@@ -1,48 +1,46 @@
-// Package state provides persistent storage for port scan snapshots,
-// enabling portwatch to detect changes between daemon runs.
+// Package state manages persistence and comparison of observed port sets.
 package state
 
 import (
 	"encoding/json"
 	"os"
-	"time"
+	"path/filepath"
 )
 
 // PortEntry represents a single observed open port.
 type PortEntry struct {
-	Port     int    `json:"port"`
 	Protocol string `json:"protocol"`
-	Address  string `json:"address"`
+	Port     int    `json:"port"`
 }
 
-// Snapshot holds the full port state captured at a point in time.
+// Snapshot holds a complete set of observed open ports at a point in time.
 type Snapshot struct {
-	CapturedAt time.Time   `json:"captured_at"`
-	Ports      []PortEntry `json:"ports"`
+	Ports []PortEntry `json:"ports"`
 }
 
-// Store manages reading and writing state snapshots to disk.
+// Diff describes ports that have opened or closed between two snapshots.
+type Diff struct {
+	Opened []PortEntry
+	Closed []PortEntry
+}
+
+// IsEmpty reports whether the diff contains no changes.
+func (d Diff) IsEmpty() bool {
+	return len(d.Opened) == 0 && len(d.Closed) == 0
+}
+
+// Store persists snapshots to disk.
 type Store struct {
 	path string
 }
 
-// New creates a new Store that persists state to the given file path.
+// New creates a Store that persists state to the given file path.
 func New(path string) *Store {
 	return &Store{path: path}
 }
 
-// Save writes the snapshot to disk, overwriting any previous state.
-func (s *Store) Save(snap Snapshot) error {
-	snap.CapturedAt = time.Now()
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, data, 0o600)
-}
-
-// Load reads the last persisted snapshot from disk.
-// Returns an empty Snapshot and no error when the file does not yet exist.
+// Load reads the last saved snapshot from disk.
+// If no file exists an empty Snapshot is returned without error.
 func (s *Store) Load() (Snapshot, error) {
 	data, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
@@ -58,28 +56,40 @@ func (s *Store) Load() (Snapshot, error) {
 	return snap, nil
 }
 
-// Diff compares two snapshots and returns the ports that were opened or closed.
-func Diff(prev, curr Snapshot) (opened, closed []PortEntry) {
-	prevSet := toSet(prev.Ports)
-	currSet := toSet(curr.Ports)
-
-	for key, entry := range currSet {
-		if _, exists := prevSet[key]; !exists {
-			opened = append(opened, entry)
-		}
+// Save writes the snapshot to disk with restricted permissions.
+func (s *Store) Save(snap Snapshot) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
 	}
-	for key, entry := range prevSet {
-		if _, exists := currSet[key]; !exists {
-			closed = append(closed, entry)
-		}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return err
 	}
-	return opened, closed
+	return os.WriteFile(s.path, data, 0o600)
 }
 
-func toSet(ports []PortEntry) map[string]PortEntry {
-	m := make(map[string]PortEntry, len(ports))
-	for _, p := range ports {
-		key := p.Protocol + ":" + p.Address + ":" + string(rune(p.Port+'0'))
+// Diff computes the difference between two snapshots.
+func Diff(prev, curr Snapshot) Diff {
+	prevSet := toSet(prev)
+	currSet := toSet(curr)
+	var d Diff
+	for k, e := range currSet {
+		if _, ok := prevSet[k]; !ok {
+			d.Opened = append(d.Opened, e)
+		}
+	}
+	for k, e := range prevSet {
+		if _, ok := currSet[k]; !ok {
+			d.Closed = append(d.Closed, e)
+		}
+	}
+	return d
+}
+
+func toSet(snap Snapshot) map[string]PortEntry {
+	m := make(map[string]PortEntry, len(snap.Ports))
+	for _, p := range snap.Ports {
+		key := p.Protocol + ":" + string(rune(p.Port))
 		m[key] = p
 	}
 	return m
