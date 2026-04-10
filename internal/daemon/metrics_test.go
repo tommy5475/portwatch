@@ -56,6 +56,21 @@ func TestMetricsRecordScanWithError(t *testing.T) {
 	}
 }
 
+func TestMetricsRecordScanErrorCleared(t *testing.T) {
+	// Verify that a successful scan clears a previously recorded error.
+	m := newMetrics()
+	m.recordScan(errors.New("transient error"))
+	m.recordScan(nil)
+
+	snap := m.snapshot()
+	if snap.LastScanError != "" {
+		t.Errorf("expected LastScanError to be cleared after successful scan, got %q", snap.LastScanError)
+	}
+	if snap.ScansTotal != 2 {
+		t.Errorf("expected ScansTotal 2, got %d", snap.ScansTotal)
+	}
+}
+
 func TestMetricsRecordChanges(t *testing.T) {
 	m := newMetrics()
 	m.recordChanges(3)
