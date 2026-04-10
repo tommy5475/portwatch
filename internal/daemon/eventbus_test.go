@@ -89,3 +89,11 @@ func TestEventBusDefaultBufferOnZero(t *testing.T) {
 		t.Fatalf("expected 8 buffered events, got %d", len(ch))
 	}
 }
+
+func TestEventBusUnsubscribeUnknownTopicNoOp(t *testing.T) {
+	// Unsubscribing a channel from a topic it was never subscribed to
+	// (or from an entirely unknown topic) should not panic.
+	bus := newEventBus()
+	ch := bus.Subscribe("scan.done", 4)
+	bus.Unsubscribe("nonexistent.topic", ch) // must not panic
+}
