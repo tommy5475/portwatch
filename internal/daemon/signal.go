@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -20,7 +21,7 @@ func RunWithSignals(parent context.Context, d *Daemon) error {
 	err := d.Run(ctx)
 
 	// A cancelled context due to a signal is not an application error.
-	if err == context.Canceled || err == context.DeadlineExceeded {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return nil
 	}
 	return err
