@@ -52,6 +52,27 @@ func (f *Filter) Rules() []Rule {
 	return out
 }
 
+// Len returns the number of rules in the filter.
+func (f *Filter) Len() int {
+	return len(f.rules)
+}
+
+// String returns a human-readable summary of the filter rules.
+func (f *Filter) String() string {
+	if len(f.rules) == 0 {
+		return "filter: no rules (default allow all)"
+	}
+	result := fmt.Sprintf("filter: %d rule(s)\n", len(f.rules))
+	for i, r := range f.rules {
+		action := "allow"
+		if !r.Allow {
+			action = "deny"
+		}
+		result += fmt.Sprintf("  [%d] %s %s ports %d-%d\n", i+1, action, r.Protocol, r.PortMin, r.PortMax)
+	}
+	return result
+}
+
 func matchesProtocol(ruleProto, queryProto string) bool {
 	return ruleProto == "*" || ruleProto == queryProto
 }
