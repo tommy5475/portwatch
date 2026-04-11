@@ -5,7 +5,13 @@
 // and reports any state changes (open -> closed or closed -> open) through
 // a channel-based notification system.
 //
-// Example usage:
+// # Architecture
+//
+// The monitor uses a polling approach: at each interval tick, it checks all
+// configured ports and compares the results against the previously recorded
+// state. Any differences are emitted as [Change] events on the changes channel.
+//
+// # Example usage
 //
 //	package main
 //
@@ -23,7 +29,7 @@
 //		m := monitor.New(ports, interval)
 //		ctx := context.Background()
 //
-//		// Listen for changes
+//		// Listen for changes before starting to avoid missing events.
 //		go func() {
 //			for change := range m.Changes() {
 //				fmt.Printf("Port %d changed: %v -> %v\n",
@@ -31,12 +37,15 @@
 //			}
 //		}()
 //
-//		// Start monitoring
+//		// Start monitoring (blocks until ctx is cancelled or an error occurs).
 //		if err := m.Start(ctx); err != nil {
 //			fmt.Printf("Monitor error: %v\n", err)
 //		}
 //	}
 //
+// # Thread safety
+//
 // The monitor maintains thread-safe state tracking and provides methods to
-// query the current state of all monitored ports.
+// query the current state of all monitored ports. All exported methods are
+// safe for concurrent use.
 package monitor
