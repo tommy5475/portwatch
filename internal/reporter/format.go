@@ -30,13 +30,18 @@ func ParseFormat(s string) (Format, error) {
 	}
 }
 
+// formatTimestamp converts a Unix timestamp to a UTC RFC3339 string.
+func formatTimestamp(ts int64) string {
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
+}
+
 // formatText renders a state.Diff as a human-readable string.
 func formatText(d state.Diff) string {
 	if len(d.Opened)+len(d.Closed) == 0 {
 		return "no changes detected\n"
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("port changes at %s\n", time.Unix(d.Timestamp, 0).UTC().Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("port changes at %s\n", formatTimestamp(d.Timestamp)))
 	for _, p := range d.Opened {
 		sb.WriteString(fmt.Sprintf("  + %-6d %s\n", p.Port, p.Protocol))
 	}
@@ -50,7 +55,7 @@ func formatText(d state.Diff) string {
 func formatCSV(d state.Diff) string {
 	var sb strings.Builder
 	sb.WriteString("timestamp,event,port,protocol\n")
-	ts := time.Unix(d.Timestamp, 0).UTC().Format(time.RFC3339)
+	ts := formatTimestamp(d.Timestamp)
 	for _, p := range d.Opened {
 		sb.WriteString(fmt.Sprintf("%s,opened,%d,%s\n", ts, p.Port, p.Protocol))
 	}
