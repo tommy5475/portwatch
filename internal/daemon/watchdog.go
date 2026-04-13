@@ -16,6 +16,7 @@ type watchdog struct {
 	fired    bool
 	onFire   func()
 	stopped  bool
+	kickCount int64
 }
 
 // newWatchdog creates a watchdog that calls onFire when no Kick is received
@@ -55,6 +56,7 @@ func (w *watchdog) Kick() {
 		return
 	}
 	w.fired = false
+	w.kickCount++
 	w.timer.Reset(w.timeout)
 }
 
@@ -63,6 +65,15 @@ func (w *watchdog) Fired() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.fired
+}
+
+// KickCount returns the total number of successful Kick calls since the
+// watchdog was created. This can be used to monitor liveness of the
+// operation being watched (e.g. expose as a metric).
+func (w *watchdog) KickCount() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.kickCount
 }
 
 // Stop disarms the watchdog permanently.
