@@ -1,23 +1,24 @@
-// Package daemon provides the core runtime components for the portwatch daemon.
+// Package daemon provides the core runtime primitives for the portwatch daemon.
 //
 // # Ticker
 //
-// The ticker module drives the periodic scan loop. It wraps time.Ticker to
-// allow deterministic testing via a swappable clock interface.
+// ticker is a thin wrapper around [time.Ticker] that exposes a channel-based
+// interface consumed by [runLoop]. It exists primarily to allow deterministic
+// unit testing via [newFakeTicker], which lets tests drive ticks manually
+// without relying on wall-clock timing.
 //
-// A [newTicker] call returns a ticker that fires at the configured interval.
-// Callers pass a context; when the context is cancelled the ticker stops
-// automatically and the run loop exits cleanly.
+// # runLoop
 //
-// The [runLoop] function ties the ticker to the pipeline: on every tick it
-// invokes the provided scan function and forwards any error to the watcher
-// for health tracking.
+// runLoop drives the main scan cycle. It blocks until the provided
+// [context.Context] is cancelled, calling fn on every tick emitted by the
+// supplied ticker. The function is called synchronously; the loop will not
+// tick again until fn returns, ensuring that slow scans do not overlap.
 //
-// Usage:
+// Typical usage:
 //
-//	t := newTicker(interval)
-//	defer t.stop()
-//	runLoop(ctx, t, interval, func(ctx context.Context) error {
-//		return pipeline.Run(ctx)
+//	tk := newTicker(cfg.Interval)
+//	defer tk.stop()
+//	runLoop(ctx, tk, func() {
+//		_ = pipeline.run(ctx)
 //	})
 package daemon
