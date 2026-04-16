@@ -14,9 +14,7 @@ func BenchmarkEpochAdvance(b *testing.B) {
 
 func BenchmarkEpochGeneration(b *testing.B) {
 	e := newEpoch()
-	for i := 0; i < 100; i++ {
-		e.advance()
-	}
+	e.advance()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = e.generation()
@@ -26,9 +24,14 @@ func BenchmarkEpochGeneration(b *testing.B) {
 func BenchmarkEpochConcurrentAdvanceGeneration(b *testing.B) {
 	e := newEpoch()
 	b.RunParallel(func(pb *testing.PB) {
+		i := 0
 		for pb.Next() {
-			e.advance()
-			_ = e.generation()
+			if i%2 == 0 {
+				e.advance()
+			} else {
+				_ = e.generation()
+			}
+			i++
 		}
 	})
 }
